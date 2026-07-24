@@ -11,7 +11,6 @@ export interface OrganizationAttributes {
   metadata?: object | null;
   status?: string;
   isDeleted?: boolean;
-  isHrmsSetup?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -27,7 +26,6 @@ export class Organization extends Model<OrganizationAttributes, Partial<Organiza
   declare metadata: object | null;
   declare status: string;
   declare isDeleted: boolean;
-  declare isHrmsSetup: boolean;
   
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
@@ -76,10 +74,6 @@ export const initOrganization = (sequelize: Sequelize, dataTypes: typeof DataTyp
         defaultValue: "ACTIVE",
       },
       isDeleted: {
-        type: dataTypes.BOOLEAN,
-        defaultValue: false,
-      },
-      isHrmsSetup: {
         type: dataTypes.BOOLEAN,
         defaultValue: false,
       },

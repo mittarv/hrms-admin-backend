@@ -48,8 +48,35 @@ export const createOrganization = async (req: Request, res: Response) => {
         ${defaultConfigs.map(c => `('${org.id}', '${c.type}', '${c.value}', false, NOW(), NOW())`).join(',')}
       `;
       await dbHrms.query(insertQuery);
+
+      // Seed Unpaid Leave with empty employeeType mapping ({})
+      const leaveQuery = `
+        INSERT INTO employeeleaveconfigurators 
+        (leaveConfigId, empCompanyId, leaveType, employeeType, accuralFrequency, totalAllotedLeaves, accuralRate, minimumNoticePeriod, maximumNoticePeriod, continuousLeavesLimit, excludePaidWeekend, appliedGender, isHalfDayAllowed, isProofRequired, isReasonRequired, effectiveDate, isActive, isDefault, allotAllLeaves, createdAt, updatedAt)
+        VALUES 
+        (UUID(), '${org.id}', 'Unpaid Leave', '{}', 'monthly_key', 0, 0, 0, 0, 0, false, 'All', true, false, false, NOW(), true, false, false, NOW(), NOW())
+      `;
+      await dbHrms.query(leaveQuery);
+
+      // Seed default salary category and Loss of Pay deduction component for this org
+      const categoryId = require('crypto').randomUUID();
+      const salaryCatQuery = `
+        INSERT INTO salarycategories
+        (salaryCategoryId, empCompanyId, employeeType, employeeLocation, employeeLevel, department, yearOfStudy, isDeleted, createdAt, updatedAt)
+        VALUES
+        ('${categoryId}', '${org.id}', 'All', 'All', 'All', NULL, NULL, false, NOW(), NOW())
+      `;
+      await dbHrms.query(salaryCatQuery);
+
+      const lopQuery = `
+        INSERT INTO salarycomponents
+        (componentId, empCompanyId, salaryCategoryId, componentName, componentType, amount, isVariable, includeinLop, isDeleted, isDefault, createdBy, updatedBy, createdAt, updatedAt)
+        VALUES
+        (UUID(), '${org.id}', '${categoryId}', 'Loss of Pay(per day)', 'defaultDeduction', 0, false, false, false, true, 'system', 'system', NOW(), NOW())
+      `;
+      await dbHrms.query(lopQuery);
     } catch (seedErr) {
-      console.error("Failed to seed default component configs:", seedErr);
+      console.error("Failed to seed default component/leave/salary configs:", seedErr);
     }
 
     res.status(201).json({ message: "Organization created successfully", data: org });
@@ -99,7 +126,7 @@ export const getOrganizationById = async (req: Request, res: Response) => {
 export const updateOrganization = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    let { name, subdomain, adminEmail, allowedDomain, status, metadata, isHrmsSetup } = req.body;
+    let { name, subdomain, adminEmail, allowedDomain, status, metadata } = req.body;
     
     if (!allowedDomain && adminEmail) {
       allowedDomain = extractDomainFromEmail(adminEmail) || undefined;
@@ -124,7 +151,6 @@ export const updateOrganization = async (req: Request, res: Response) => {
       allowedDomain: allowedDomain !== undefined ? allowedDomain : org.allowedDomain,
       metadata: metadata !== undefined ? metadata : org.metadata,
       status: status || org.status,
-      isHrmsSetup: isHrmsSetup !== undefined ? isHrmsSetup : org.isHrmsSetup,
     });
 
     res.status(200).json({ message: "Organization updated successfully", data: org });
@@ -143,9 +169,41 @@ export const deleteOrganization = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Organization not found" });
     }
 
+    // 1. Deactivate the organization
     await org.update({ status: "SUSPENDED", isDeleted: true });
 
-    res.status(200).json({ message: "Organization deactivated successfully" });
+    // 2. Cascade soft-delete for all organization records across configurator & mapping tables
+    const tablesToSoftDelete = [
+      "employeecomponentconfigurators",
+      "salarycategories",
+      "salarycomponents",
+      "user_organization_mappings",
+      "employeebasicdetails"
+    ];
+
+    for (const table of tablesToSoftDelete) {
+      try {
+        const whereCol = table === "user_organization_mappings" ? "organizationId" : "empCompanyId";
+        await dbHrms.query(
+          `UPDATE ${table} SET isDeleted = true, updatedAt = NOW() WHERE ${whereCol} = :orgId`,
+          { replacements: { orgId: id } }
+        );
+      } catch (tableErr) {
+        console.error(`Error soft-deleting records in ${table}:`, tableErr);
+      }
+    }
+
+    // employeeleaveconfigurators uses isActive flag
+    try {
+      await dbHrms.query(
+        `UPDATE employeeleaveconfigurators SET isActive = false, updatedAt = NOW() WHERE empCompanyId = :orgId`,
+        { replacements: { orgId: id } }
+      );
+    } catch (leaveErr) {
+      console.error(`Error deactivating leave configs for org ${id}:`, leaveErr);
+    }
+
+    res.status(200).json({ message: "Organization deactivated and related records deleted successfully" });
   } catch (error: any) {
     console.error("Error deleting organization:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -161,9 +219,41 @@ export const restoreOrganization = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Organization not found" });
     }
 
+    // 1. Restore the organization
     await org.update({ status: "ACTIVE", isDeleted: false });
 
-    res.status(200).json({ message: "Organization restored successfully", data: org });
+    // 2. Restore all related organization records across configurator & mapping tables
+    const tablesToRestore = [
+      "employeecomponentconfigurators",
+      "salarycategories",
+      "salarycomponents",
+      "user_organization_mappings",
+      "employeebasicdetails"
+    ];
+
+    for (const table of tablesToRestore) {
+      try {
+        const whereCol = table === "user_organization_mappings" ? "organizationId" : "empCompanyId";
+        await dbHrms.query(
+          `UPDATE ${table} SET isDeleted = false, updatedAt = NOW() WHERE ${whereCol} = :orgId`,
+          { replacements: { orgId: id } }
+        );
+      } catch (tableErr) {
+        console.error(`Error restoring records in ${table}:`, tableErr);
+      }
+    }
+
+    // employeeleaveconfigurators uses isActive flag
+    try {
+      await dbHrms.query(
+        `UPDATE employeeleaveconfigurators SET isActive = true, updatedAt = NOW() WHERE empCompanyId = :orgId`,
+        { replacements: { orgId: id } }
+      );
+    } catch (leaveErr) {
+      console.error(`Error activating leave configs for org ${id}:`, leaveErr);
+    }
+
+    res.status(200).json({ message: "Organization and related records restored successfully", data: org });
   } catch (error: any) {
     console.error("Error restoring organization:", error);
     res.status(500).json({ error: "Internal server error" });

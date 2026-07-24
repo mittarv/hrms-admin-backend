@@ -74,7 +74,7 @@ web_modules/
 .DS_Store
 .vscode/
 .idea/
-
+ logo
 # build outputs
 dist/
 build/
