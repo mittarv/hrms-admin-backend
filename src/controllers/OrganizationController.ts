@@ -1,15 +1,23 @@
 import { Request, Response } from "express";
 import { dbHrms } from "../models";
 import { extractDomainFromEmail, generateSlugDomain } from "../utils/domainUtils";
+import { sendSaaSCreationEmail } from "../utils/sendEmail";
 
 const Organization = (dbHrms as any).organization;
 
 export const createOrganization = async (req: Request, res: Response) => {
   try {
-    let { name, subdomain, adminEmail, allowedDomain, status, metadata } = req.body;
+    let { name, subdomain, domain, adminEmail, allowedDomain, status, metadata } = req.body;
     
     if (!allowedDomain && adminEmail) {
       allowedDomain = extractDomainFromEmail(adminEmail) || undefined;
+    }
+
+    // Clean domain string if provided
+    if (domain) {
+      domain = domain.replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase().trim();
+    } else if (allowedDomain) {
+      domain = allowedDomain.toLowerCase().trim();
     }
     
     // Check if subdomain already exists
@@ -18,12 +26,13 @@ export const createOrganization = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Subdomain already exists" });
     }
 
-    // Generate unique slugDomain for CNAME targeting
+    // Generate unique slugDomain for backwards compatibility in DB
     const slugDomain = generateSlugDomain(subdomain);
 
     const org = await Organization.create({
       name,
       subdomain,
+      domain: domain || null,
       slugDomain,
       adminEmail,
       allowedDomain,
@@ -79,6 +88,14 @@ export const createOrganization = async (req: Request, res: Response) => {
       console.error("Failed to seed default component/leave/salary configs:", seedErr);
     }
 
+    if (adminEmail) {
+      try {
+        await sendSaaSCreationEmail(adminEmail, subdomain, org.domain);
+      } catch (emailErr) {
+        console.error("Failed to send SaaS creation email:", emailErr);
+      }
+    }
+
     res.status(201).json({ message: "Organization created successfully", data: org });
   } catch (error: any) {
     console.error("Error creating organization:", error);
@@ -126,10 +143,14 @@ export const getOrganizationById = async (req: Request, res: Response) => {
 export const updateOrganization = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    let { name, subdomain, adminEmail, allowedDomain, status, metadata } = req.body;
+    let { name, subdomain, domain, adminEmail, allowedDomain, status, metadata } = req.body;
     
     if (!allowedDomain && adminEmail) {
       allowedDomain = extractDomainFromEmail(adminEmail) || undefined;
+    }
+    
+    if (domain) {
+      domain = domain.replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase().trim();
     }
     
     const org = await Organization.findByPk(id);
@@ -147,6 +168,7 @@ export const updateOrganization = async (req: Request, res: Response) => {
     await org.update({
       name: name || org.name,
       subdomain: subdomain || org.subdomain,
+      domain: domain !== undefined ? domain : org.domain,
       adminEmail: adminEmail !== undefined ? adminEmail : org.adminEmail,
       allowedDomain: allowedDomain !== undefined ? allowedDomain : org.allowedDomain,
       metadata: metadata !== undefined ? metadata : org.metadata,

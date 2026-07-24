@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Welcome to Your New HRMS</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+    .header { background-color: #f4f4f4; padding: 10px; text-align: center; border-radius: 5px 5px 0 0; }
+    .content { padding: 20px; }
+    .button { display: inline-block; padding: 10px 20px; background-color: #007bff; color: #fff; text-decoration: none; border-radius: 5px; margin-top: 10px; }
+    .footer { font-size: 0.8em; color: #777; text-align: center; margin-top: 20px; padding-top: 10px; border-top: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>Welcome to your new HRMS!</h2>
+    </div>
+    <div class="content">
+      <p>Hello,</p>
+      <p>Your organization's new HRMS workspace has been successfully created. You have been granted Super Admin access.</p>
+      <p>You can access your dedicated workspace here:</p>
+      <p style="text-align: center;">
+        <a href="{{redirectUrl}}" class="button">Access HRMS</a>
+      </p>
+      <p>If the button doesn't work, copy and paste this link into your browser:</p>
+      <p>{{redirectUrl}}</p>
+      <p>Please log in using this email address to automatically claim your Admin privileges.</p>
+    </div>
+    <div class="footer">
+      <p>Thank you for choosing our platform.</p>
+    </div>
+  </div>
+</body>
+</html>
