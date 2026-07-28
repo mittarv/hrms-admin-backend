@@ -1,7 +1,7 @@
 # ============================
 # 1️⃣ Build Stage
 # ============================
-FROM node:18-alpine AS builder
+FROM node:24.16.0-alpine AS builder
 
 WORKDIR /app
 
@@ -22,7 +22,7 @@ RUN npx tsc --outDir dist
 # ============================
 # 2️⃣ Production Stage
 # ============================
-FROM node:18-alpine AS production
+FROM node:24.16.0-alpine AS production
 
 WORKDIR /app
 
