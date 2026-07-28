@@ -38,8 +38,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git tag -a $RELEASE_TAG -m "Release $RELEASE_TAG"
-          git push origin $RELEASE_TAG
+          $localExists = (git tag -l $RELEASE_TAG)
+          $remoteExists = (git ls-remote --tags origin $RELEASE_TAG)
+
+          if (-not $localExists) {
+              Write-Host "Creating tag $RELEASE_TAG locally..."
+              git tag -a $RELEASE_TAG -m "Release $RELEASE_TAG"
+          } else {
+              Write-Host "Tag $RELEASE_TAG already exists locally."
+          }
+
+          if (-not $remoteExists) {
+              Write-Host "Pushing tag $RELEASE_TAG to remote origin..."
+              git push origin $RELEASE_TAG
+          } else {
+              Write-Host "Tag $RELEASE_TAG already exists on remote origin."
+          }
 
       - name: Create .env file
         shell: pwsh
