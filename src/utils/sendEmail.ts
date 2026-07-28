@@ -24,7 +24,13 @@ const handlebarOptions = {
 
 transporter.use('compile', hbs(handlebarOptions));
 
-export const sendSaaSCreationEmail = async (email: string, subdomain: string, domain: string | null) => {
+export const sendSaaSCreationEmail = async (
+  email: string,
+  subdomain: string,
+  domain: string | null,
+  organizationName: string,
+  adminName: string
+) => {
   return new Promise((resolve, reject) => {
     // Construct redirect URL
     let redirectUrl = process.env.REDIRECT_URL;
@@ -48,6 +54,10 @@ export const sendSaaSCreationEmail = async (email: string, subdomain: string, do
       template: 'saas_onboarding_welcome',
       context: {
         redirectUrl: redirectUrl,
+        adminName: adminName,
+        organizationName: organizationName,
+        email: email,
+        year: new Date().getFullYear().toString()
       }
     } as any, (err: any) => {
       if (err) {

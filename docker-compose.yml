@@ -1,0 +1,22 @@
+services:
+  hrmsadmin-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: hrmsadmin-backend:latest
+    container_name: hrmsadmin-backend
+    ports:
+      - "${HOST_PORT:-8020}:${PORT:-8020}"
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=${PORT:-8020}
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:${PORT:-8020}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

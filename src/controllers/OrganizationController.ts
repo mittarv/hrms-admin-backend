@@ -1,9 +1,26 @@
 import { Request, Response } from "express";
+import { QueryTypes } from "sequelize";
+import { randomUUID } from "crypto";
 import { dbHrms } from "../models";
 import { extractDomainFromEmail, generateSlugDomain } from "../utils/domainUtils";
 import { sendSaaSCreationEmail } from "../utils/sendEmail";
-
-const Organization = (dbHrms as any).organization;
+import {
+  FIND_ORG_BY_SUBDOMAIN,
+  INSERT_ORGANIZATION,
+  INSERT_DEFAULT_CONFIGS,
+  INSERT_UNPAID_LEAVE,
+  INSERT_SALARY_CATEGORY,
+  GET_ALL_ORGANIZATIONS,
+  FIND_ORG_BY_ID,
+  UPDATE_ORGANIZATION,
+  DEACTIVATE_ORGANIZATION,
+  CASCADE_SOFT_DELETE,
+  CASCADE_SOFT_DELETE_MAPPING,
+  CASCADE_DEACTIVATE_LEAVE,
+  ACTIVATE_ORGANIZATION,
+  CASCADE_RESTORE,
+  CASCADE_ACTIVATE_LEAVE
+} from "../queries/organizationQueries";
 
 export const createOrganization = async (req: Request, res: Response) => {
   try {
@@ -21,24 +38,51 @@ export const createOrganization = async (req: Request, res: Response) => {
     }
     
     // Check if subdomain already exists
-    const existingOrg = await Organization.findOne({ where: { subdomain } });
-    if (existingOrg) {
+    const existingOrgs: any[] = await dbHrms.query(FIND_ORG_BY_SUBDOMAIN, {
+      replacements: { subdomain },
+      type: QueryTypes.SELECT
+    });
+    if (existingOrgs && existingOrgs.length > 0) {
       return res.status(400).json({ error: "Subdomain already exists" });
     }
 
     // Generate unique slugDomain for backwards compatibility in DB
     const slugDomain = generateSlugDomain(subdomain);
 
-    const org = await Organization.create({
+    const id = randomUUID();
+    const orgStatus = status || "ACTIVE";
+    const orgMetadata = metadata || null;
+    const orgDomain = domain || null;
+
+    // Use INSERT_ORGANIZATION query
+    await dbHrms.query(INSERT_ORGANIZATION, {
+      replacements: {
+        id,
+        name,
+        subdomain,
+        domain: orgDomain,
+        slugDomain,
+        adminEmail: adminEmail || null,
+        allowedDomain: allowedDomain || null,
+        metadata: orgMetadata ? JSON.stringify(orgMetadata) : null,
+        status: orgStatus
+      }
+    });
+
+    const org = {
+      id,
       name,
       subdomain,
-      domain: domain || null,
+      domain: orgDomain,
       slugDomain,
-      adminEmail,
-      allowedDomain,
-      metadata: metadata || null,
-      status: status || "ACTIVE",
-    });
+      adminEmail: adminEmail || null,
+      allowedDomain: allowedDomain || null,
+      metadata: orgMetadata,
+      status: orgStatus,
+      isDeleted: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
 
     // Seed default dropdown configurations for this new organization
     const defaultConfigs = [
@@ -50,47 +94,29 @@ export const createOrganization = async (req: Request, res: Response) => {
     ];
 
     try {
-      const insertQuery = `
-        INSERT INTO employeecomponentconfigurators 
-        (empCompanyId, componentType, componentValue, isDeleted, createdAt, updatedAt)
-        VALUES 
-        ${defaultConfigs.map(c => `('${org.id}', '${c.type}', '${c.value}', false, NOW(), NOW())`).join(',')}
-      `;
+      const insertQuery = INSERT_DEFAULT_CONFIGS(org.id, defaultConfigs);
       await dbHrms.query(insertQuery);
 
       // Seed Unpaid Leave with empty employeeType mapping ({})
-      const leaveQuery = `
-        INSERT INTO employeeleaveconfigurators 
-        (leaveConfigId, empCompanyId, leaveType, employeeType, accuralFrequency, totalAllotedLeaves, accuralRate, minimumNoticePeriod, maximumNoticePeriod, continuousLeavesLimit, excludePaidWeekend, appliedGender, isHalfDayAllowed, isProofRequired, isReasonRequired, effectiveDate, isActive, isDefault, allotAllLeaves, createdAt, updatedAt)
-        VALUES 
-        (UUID(), '${org.id}', 'Unpaid Leave', '{}', 'monthly_key', 0, 0, 0, 0, 0, false, 'All', true, false, false, NOW(), true, false, false, NOW(), NOW())
-      `;
-      await dbHrms.query(leaveQuery);
+      await dbHrms.query(INSERT_UNPAID_LEAVE, {
+        replacements: { orgId: org.id }
+      });
 
-      // Seed default salary category and Loss of Pay deduction component for this org
-      const categoryId = require('crypto').randomUUID();
-      const salaryCatQuery = `
-        INSERT INTO salarycategories
-        (salaryCategoryId, empCompanyId, employeeType, employeeLocation, employeeLevel, department, yearOfStudy, isDeleted, createdAt, updatedAt)
-        VALUES
-        ('${categoryId}', '${org.id}', 'All', 'All', 'All', NULL, NULL, false, NOW(), NOW())
-      `;
-      await dbHrms.query(salaryCatQuery);
+      // Seed default salary category
+      const categoryId = randomUUID();
+      await dbHrms.query(INSERT_SALARY_CATEGORY, {
+        replacements: { categoryId, orgId: org.id }
+      });
 
-      const lopQuery = `
-        INSERT INTO salarycomponents
-        (componentId, empCompanyId, salaryCategoryId, componentName, componentType, amount, isVariable, includeinLop, isDeleted, isDefault, createdBy, updatedBy, createdAt, updatedAt)
-        VALUES
-        (UUID(), '${org.id}', '${categoryId}', 'Loss of Pay(per day)', 'defaultDeduction', 0, false, false, false, true, 'system', 'system', NOW(), NOW())
-      `;
-      await dbHrms.query(lopQuery);
+      // DO NOT seed Loss of Pay component (lopQuery removed as requested)
     } catch (seedErr) {
       console.error("Failed to seed default component/leave/salary configs:", seedErr);
     }
 
     if (adminEmail) {
       try {
-        await sendSaaSCreationEmail(adminEmail, subdomain, org.domain);
+        const adminName = req.body.adminName || adminEmail.split('@')[0].split(/[._-]/).map((s: string) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
+        await sendSaaSCreationEmail(adminEmail, subdomain, org.domain, org.name, adminName);
       } catch (emailErr) {
         console.error("Failed to send SaaS creation email:", emailErr);
       }
@@ -105,17 +131,23 @@ export const createOrganization = async (req: Request, res: Response) => {
 
 export const getAllOrganizations = async (req: Request, res: Response) => {
   try {
-    const { includeDeleted, isDeleted } = req.query;
-    let whereClause: any = {};
+    const { includeDeleted, isDeleted } = req.query as { includeDeleted?: string, isDeleted?: string };
+    const queryStr = GET_ALL_ORGANIZATIONS(isDeleted, includeDeleted);
+    const orgs = await dbHrms.query(queryStr, {
+      type: QueryTypes.SELECT
+    });
+    
+    // Parse metadata JSON field if it exists as string from MySQL
+    const parsedOrgs = orgs.map((org: any) => {
+      if (typeof org.metadata === 'string') {
+        try {
+          org.metadata = JSON.parse(org.metadata);
+        } catch (_) {}
+      }
+      return org;
+    });
 
-    if (isDeleted === 'true') {
-      whereClause.isDeleted = true;
-    } else if (includeDeleted !== 'true') {
-      whereClause.isDeleted = false;
-    }
-
-    const orgs = await Organization.findAll({ where: whereClause });
-    res.status(200).json({ data: orgs });
+    res.status(200).json({ data: parsedOrgs });
   } catch (error: any) {
     console.error("Error fetching organizations:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -125,12 +157,20 @@ export const getAllOrganizations = async (req: Request, res: Response) => {
 export const getOrganizationById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const org = await Organization.findOne({
-      where: { id }
+    const results: any[] = await dbHrms.query(FIND_ORG_BY_ID, {
+      replacements: { id },
+      type: QueryTypes.SELECT
     });
     
-    if (!org) {
+    if (!results || results.length === 0) {
       return res.status(404).json({ error: "Organization not found" });
+    }
+
+    const org = results[0];
+    if (typeof org.metadata === 'string') {
+      try {
+        org.metadata = JSON.parse(org.metadata);
+      } catch (_) {}
     }
 
     res.status(200).json({ data: org });
@@ -153,19 +193,34 @@ export const updateOrganization = async (req: Request, res: Response) => {
       domain = domain.replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase().trim();
     }
     
-    const org = await Organization.findByPk(id);
-    if (!org) {
+    const results: any[] = await dbHrms.query(FIND_ORG_BY_ID, {
+      replacements: { id },
+      type: QueryTypes.SELECT
+    });
+    
+    if (!results || results.length === 0) {
       return res.status(404).json({ error: "Organization not found" });
     }
 
+    const org = results[0];
+    if (typeof org.metadata === 'string') {
+      try {
+        org.metadata = JSON.parse(org.metadata);
+      } catch (_) {}
+    }
+
     if (subdomain && subdomain !== org.subdomain) {
-      const existingOrg = await Organization.findOne({ where: { subdomain } });
-      if (existingOrg) {
+      const existingOrgs: any[] = await dbHrms.query(FIND_ORG_BY_SUBDOMAIN, {
+        replacements: { subdomain },
+        type: QueryTypes.SELECT
+      });
+      if (existingOrgs && existingOrgs.length > 0) {
         return res.status(400).json({ error: "Subdomain already exists" });
       }
     }
 
-    await org.update({
+    const updatedFields = {
+      id,
       name: name || org.name,
       subdomain: subdomain || org.subdomain,
       domain: domain !== undefined ? domain : org.domain,
@@ -173,9 +228,22 @@ export const updateOrganization = async (req: Request, res: Response) => {
       allowedDomain: allowedDomain !== undefined ? allowedDomain : org.allowedDomain,
       metadata: metadata !== undefined ? metadata : org.metadata,
       status: status || org.status,
+    };
+
+    await dbHrms.query(UPDATE_ORGANIZATION, {
+      replacements: {
+        id: updatedFields.id,
+        name: updatedFields.name,
+        subdomain: updatedFields.subdomain,
+        domain: updatedFields.domain || null,
+        adminEmail: updatedFields.adminEmail || null,
+        allowedDomain: updatedFields.allowedDomain || null,
+        metadata: updatedFields.metadata ? JSON.stringify(updatedFields.metadata) : null,
+        status: updatedFields.status
+      }
     });
 
-    res.status(200).json({ message: "Organization updated successfully", data: org });
+    res.status(200).json({ message: "Organization updated successfully", data: updatedFields });
   } catch (error: any) {
     console.error("Error updating organization:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -185,29 +253,32 @@ export const updateOrganization = async (req: Request, res: Response) => {
 export const deleteOrganization = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const org = await Organization.findByPk(id);
+    const results: any[] = await dbHrms.query(FIND_ORG_BY_ID, {
+      replacements: { id },
+      type: QueryTypes.SELECT
+    });
     
-    if (!org) {
+    if (!results || results.length === 0) {
       return res.status(404).json({ error: "Organization not found" });
     }
 
     // 1. Deactivate the organization
-    await org.update({ status: "SUSPENDED", isDeleted: true });
+    await dbHrms.query(DEACTIVATE_ORGANIZATION, {
+      replacements: { id }
+    });
 
     // 2. Cascade soft-delete for all organization records across configurator & mapping tables
     const tablesToSoftDelete = [
       "employeecomponentconfigurators",
       "salarycategories",
-      "salarycomponents",
-      "user_organization_mappings",
+      "salary_components",
       "employeebasicdetails"
     ];
 
     for (const table of tablesToSoftDelete) {
       try {
-        const whereCol = table === "user_organization_mappings" ? "organizationId" : "empCompanyId";
         await dbHrms.query(
-          `UPDATE ${table} SET isDeleted = true, updatedAt = NOW() WHERE ${whereCol} = :orgId`,
+          CASCADE_SOFT_DELETE(table),
           { replacements: { orgId: id } }
         );
       } catch (tableErr) {
@@ -215,10 +286,19 @@ export const deleteOrganization = async (req: Request, res: Response) => {
       }
     }
 
+    try {
+      await dbHrms.query(
+        CASCADE_SOFT_DELETE_MAPPING,
+        { replacements: { orgId: id } }
+      );
+    } catch (mappingErr) {
+      console.error(`Error soft-deleting user_organization_mappings for org ${id}:`, mappingErr);
+    }
+
     // employeeleaveconfigurators uses isActive flag
     try {
       await dbHrms.query(
-        `UPDATE employeeleaveconfigurators SET isActive = false, updatedAt = NOW() WHERE empCompanyId = :orgId`,
+        CASCADE_DEACTIVATE_LEAVE,
         { replacements: { orgId: id } }
       );
     } catch (leaveErr) {
@@ -235,20 +315,39 @@ export const deleteOrganization = async (req: Request, res: Response) => {
 export const restoreOrganization = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const org = await Organization.findByPk(id);
+    const results: any[] = await dbHrms.query(FIND_ORG_BY_ID, {
+      replacements: { id },
+      type: QueryTypes.SELECT
+    });
     
-    if (!org) {
+    if (!results || results.length === 0) {
       return res.status(404).json({ error: "Organization not found" });
     }
 
+    const org = results[0];
+    if (typeof org.metadata === 'string') {
+      try {
+        org.metadata = JSON.parse(org.metadata);
+      } catch (_) {}
+    }
+
     // 1. Restore the organization
-    await org.update({ status: "ACTIVE", isDeleted: false });
+    await dbHrms.query(ACTIVATE_ORGANIZATION, {
+      replacements: { id }
+    });
+
+    const restoredOrg = {
+      ...org,
+      status: "ACTIVE",
+      isDeleted: false,
+      updatedAt: new Date()
+    };
 
     // 2. Restore all related organization records across configurator & mapping tables
     const tablesToRestore = [
       "employeecomponentconfigurators",
       "salarycategories",
-      "salarycomponents",
+      "salary_components",
       "user_organization_mappings",
       "employeebasicdetails"
     ];
@@ -257,7 +356,7 @@ export const restoreOrganization = async (req: Request, res: Response) => {
       try {
         const whereCol = table === "user_organization_mappings" ? "organizationId" : "empCompanyId";
         await dbHrms.query(
-          `UPDATE ${table} SET isDeleted = false, updatedAt = NOW() WHERE ${whereCol} = :orgId`,
+          CASCADE_RESTORE(table, whereCol),
           { replacements: { orgId: id } }
         );
       } catch (tableErr) {
@@ -268,14 +367,14 @@ export const restoreOrganization = async (req: Request, res: Response) => {
     // employeeleaveconfigurators uses isActive flag
     try {
       await dbHrms.query(
-        `UPDATE employeeleaveconfigurators SET isActive = true, updatedAt = NOW() WHERE empCompanyId = :orgId`,
+        CASCADE_ACTIVATE_LEAVE,
         { replacements: { orgId: id } }
       );
     } catch (leaveErr) {
       console.error(`Error activating leave configs for org ${id}:`, leaveErr);
     }
 
-    res.status(200).json({ message: "Organization and related records restored successfully", data: org });
+    res.status(200).json({ message: "Organization and related records restored successfully", data: restoredOrg });
   } catch (error: any) {
     console.error("Error restoring organization:", error);
     res.status(500).json({ error: "Internal server error" });

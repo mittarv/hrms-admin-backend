@@ -29,14 +29,26 @@ export const googleLogin = async (req: Request, res: Response) => {
 
     if (AdminUser) {
       // Check if email exists in admin_users table
-      const existingUser = await AdminUser.findOne({
+      let existingUser = await AdminUser.findOne({
         where: { email, isDeleted: false }
       });
 
       if (!existingUser) {
-        return res.status(403).json({
-          error: "Access denied. Your email has not been invited to access the HRMS Admin Portal."
-        });
+        const envAdminEmail = process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.toLowerCase().trim() : null;
+        if (envAdminEmail && email === envAdminEmail) {
+          // Auto-seed/create the admin user in the database
+          existingUser = await AdminUser.create({
+            name: payload.name || "System Admin",
+            email: email,
+            role: "SUPER_ADMIN",
+            status: "ACTIVE",
+            isDeleted: false
+          });
+        } else {
+          return res.status(403).json({
+            error: "Access denied. Your email has not been invited to access the HRMS Admin Portal."
+          });
+        }
       }
 
       if (existingUser.status === "SUSPENDED" || existingUser.status === "INACTIVE") {

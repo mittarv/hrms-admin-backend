@@ -3,7 +3,6 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-import { initOrganization } from './OrganizationModel';
 import { initAdminUser } from './AdminUserModel';
 
 // Database for Admin UAM
@@ -32,7 +31,6 @@ const dbHrms = new Sequelize(
   }
 );
 
-(dbHrms as any).organization = initOrganization(dbHrms, require('sequelize').DataTypes);
 (dbOutput as any).adminUser = initAdminUser(dbOutput, require('sequelize').DataTypes);
 
 export const seedInitialAdminUsers = async () => {
