@@ -108,9 +108,52 @@ export const createOrganization = async (req: Request, res: Response) => {
         replacements: { categoryId, orgId: org.id }
       });
 
+      // Seed the Admin role for this org
+      await dbHrms.query(
+        `INSERT INTO hrms_role (empCompanyId, roleName, description, isDeleted, updatedBy, createdAt, updatedAt) 
+         VALUES (:orgId, 'Admin', 'Administrator with full write and edit access to all modules and configurations', 0, 'system', :now, :now)`,
+        {
+          replacements: { orgId: org.id, now: new Date() },
+          type: QueryTypes.INSERT
+        }
+      );
+
+      // Get the roleId of the newly created Admin role
+      const createdRoles: any[] = await dbHrms.query(
+        `SELECT roleId FROM hrms_role WHERE empCompanyId = :orgId AND roleName = 'Admin' AND isDeleted = 0 LIMIT 1`,
+        {
+          replacements: { orgId: org.id },
+          type: QueryTypes.SELECT
+        }
+      );
+
+      if (createdRoles && createdRoles.length > 0) {
+        const roleId = createdRoles[0].roleId;
+
+        // Fetch all permissions
+        const permissions: any[] = await dbHrms.query(
+          `SELECT permissionId FROM hrms_permissions WHERE isDeleted = 0`,
+          {
+            type: QueryTypes.SELECT
+          }
+        );
+
+        // Link Admin role to all permissions
+        for (const perm of permissions) {
+          await dbHrms.query(
+            `INSERT INTO hrms_role_permission (roleId, permissionId, isDeleted, updatedBy, createdAt, updatedAt) 
+             VALUES (:roleId, :permissionId, 0, 'system', :now, :now)`,
+            {
+              replacements: { roleId, permissionId: perm.permissionId, now: new Date() },
+              type: QueryTypes.INSERT
+            }
+          );
+        }
+      }
+
       // DO NOT seed Loss of Pay component (lopQuery removed as requested)
     } catch (seedErr) {
-      console.error("Failed to seed default component/leave/salary configs:", seedErr);
+      console.error("Failed to seed default component/leave/salary configs/roles:", seedErr);
     }
 
     if (adminEmail) {
