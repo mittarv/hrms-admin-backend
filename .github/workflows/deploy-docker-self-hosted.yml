@@ -76,6 +76,13 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           HOST_PORT: ${{ vars.HOST_PORT }}
+          REDIRECT_URL: ${{ vars.REDIRECT_URL }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_USER: ${{ vars.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          HRMS_SMTP_FROM: ${{ vars.HRMS_SMTP_FROM }}
+          ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
         run: |
           @"
           PORT=$env:PORT
@@ -96,6 +103,13 @@ jobs:
           GOOGLE_CLIENT_SECRET=$env:GOOGLE_CLIENT_SECRET
           JWT_SECRET=$env:JWT_SECRET
           HOST_PORT=$env:HOST_PORT
+          REDIRECT_URL=$env:REDIRECT_URL
+          SMTP_HOST=$env:SMTP_HOST
+          SMTP_PORT=$env:SMTP_PORT
+          SMTP_USER=$env:SMTP_USER
+          SMTP_PASS=$env:SMTP_PASS
+          HRMS_SMTP_FROM=$env:HRMS_SMTP_FROM
+          ADMIN_EMAIL=$env:ADMIN_EMAIL
           "@ | Set-Content .env
 
       - name: Stop and remove existing container
