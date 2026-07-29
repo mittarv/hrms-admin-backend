@@ -1,0 +1,184 @@
+name: Build, Deploy to Docker and Create Release Self Hosted
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE_NAME: hrmsadmin-backend
+  DOCKER_CONTAINER_NAME: hrmsadmin-backend
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy using Docker
+    environment: dev
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Generate release tag
+        id: tag
+        shell: pwsh
+        run: |
+          $RELEASE_DATE = Get-Date -Format "yyyy-MM-dd"
+          $SHORT_SHA = git rev-parse --short HEAD
+          $RELEASE_TAG = "release-$RELEASE_DATE-$SHORT_SHA"
+
+          Write-Host "Release tag: $RELEASE_TAG"
+
+          "release_tag=$RELEASE_TAG" >> $env:GITHUB_OUTPUT
+          "RELEASE_TAG=$RELEASE_TAG" >> $env:GITHUB_ENV
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          $localExists = (git tag -l $RELEASE_TAG)
+          $remoteExists = (git ls-remote --tags origin $RELEASE_TAG)
+
+          if (-not $localExists) {
+              Write-Host "Creating tag $RELEASE_TAG locally..."
+              git tag -a $RELEASE_TAG -m "Release $RELEASE_TAG"
+          } else {
+              Write-Host "Tag $RELEASE_TAG already exists locally."
+          }
+
+          if (-not $remoteExists) {
+              Write-Host "Pushing tag $RELEASE_TAG to remote origin..."
+              git push origin $RELEASE_TAG
+          } else {
+              Write-Host "Tag $RELEASE_TAG already exists on remote origin."
+          }
+
+      - name: Create .env file
+        shell: pwsh
+        env:
+          PORT: ${{ vars.PORT }}
+          NODE_ENV: ${{ vars.NODE_ENV }}
+          DATABASE_OUTPUT_NAME: ${{ vars.DATABASE_OUTPUT_NAME }}
+          DATABASE_OUTPUT_USER: ${{ vars.DATABASE_OUTPUT_USER }}
+          DATABASE_OUTPUT_PASSWORD: ${{ secrets.DATABASE_OUTPUT_PASSWORD }}
+          DATABASE_OUTPUT_PORT: ${{ vars.DATABASE_OUTPUT_PORT }}
+          DATABASE_OUTPUT_HOST: ${{ vars.DATABASE_OUTPUT_HOST }}
+          DATABASE_OUTPUT_DIALECT: ${{ vars.DATABASE_OUTPUT_DIALECT }}
+          DATABASE_HRMS_NAME: ${{ vars.DATABASE_HRMS_NAME }}
+          DATABASE_HRMS_USER: ${{ vars.DATABASE_HRMS_USER }}
+          DATABASE_HRMS_PASSWORD: ${{ secrets.DATABASE_HRMS_PASSWORD }}
+          DATABASE_HRMS_PORT: ${{ vars.DATABASE_HRMS_PORT }}
+          DATABASE_HRMS_HOST: ${{ vars.DATABASE_HRMS_HOST }}
+          DATABASE_HRMS_DIALECT: ${{ vars.DATABASE_HRMS_DIALECT }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          HOST_PORT: ${{ vars.HOST_PORT }}
+          REDIRECT_URL: ${{ vars.REDIRECT_URL }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_USER: ${{ vars.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          HRMS_SMTP_FROM: ${{ vars.HRMS_SMTP_FROM }}
+          ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
+        run: |
+          @"
+          PORT=$env:PORT
+          NODE_ENV=$env:NODE_ENV
+          DATABASE_OUTPUT_NAME=$env:DATABASE_OUTPUT_NAME
+          DATABASE_OUTPUT_USER=$env:DATABASE_OUTPUT_USER
+          DATABASE_OUTPUT_PASSWORD=$env:DATABASE_OUTPUT_PASSWORD
+          DATABASE_OUTPUT_PORT=$env:DATABASE_OUTPUT_PORT
+          DATABASE_OUTPUT_HOST=$env:DATABASE_OUTPUT_HOST
+          DATABASE_OUTPUT_DIALECT=$env:DATABASE_OUTPUT_DIALECT
+          DATABASE_HRMS_NAME=$env:DATABASE_HRMS_NAME
+          DATABASE_HRMS_USER=$env:DATABASE_HRMS_USER
+          DATABASE_HRMS_PASSWORD=$env:DATABASE_HRMS_PASSWORD
+          DATABASE_HRMS_PORT=$env:DATABASE_HRMS_PORT
+          DATABASE_HRMS_HOST=$env:DATABASE_HRMS_HOST
+          DATABASE_HRMS_DIALECT=$env:DATABASE_HRMS_DIALECT
+          GOOGLE_CLIENT_ID=$env:GOOGLE_CLIENT_ID
+          GOOGLE_CLIENT_SECRET=$env:GOOGLE_CLIENT_SECRET
+          JWT_SECRET=$env:JWT_SECRET
+          HOST_PORT=$env:HOST_PORT
+          REDIRECT_URL=$env:REDIRECT_URL
+          SMTP_HOST=$env:SMTP_HOST
+          SMTP_PORT=$env:SMTP_PORT
+          SMTP_USER=$env:SMTP_USER
+          SMTP_PASS=$env:SMTP_PASS
+          HRMS_SMTP_FROM=$env:HRMS_SMTP_FROM
+          ADMIN_EMAIL=$env:ADMIN_EMAIL
+          "@ | Set-Content .env
+
+      - name: Stop and remove existing container
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $env:COMPOSE_PROJECT_NAME = "hrmsadmin-backend"
+
+          docker compose down --remove-orphans
+
+          docker stop hrmsadmin-backend
+          docker rm hrmsadmin-backend
+
+      - name: Build and deploy with Docker Compose
+        shell: pwsh
+        env:
+          DATABASE_OUTPUT_PASSWORD: ${{ secrets.DATABASE_OUTPUT_PASSWORD }}
+          DATABASE_HRMS_PASSWORD: ${{ secrets.DATABASE_HRMS_PASSWORD }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          $env:COMPOSE_PROJECT_NAME = "hrmsadmin-backend"
+          docker compose up -d --build --force-recreate hrmsadmin-backend
+
+      - name: Verify container is running
+        shell: pwsh
+        run: |
+          Start-Sleep -Seconds 15
+          docker ps -f name=hrmsadmin-backend
+
+      - name: Clean up .env file
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Remove-Item .env -Force
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Release ${{ env.RELEASE_TAG }}
+          generate_release_notes: true
+          body: |
+            ## Deployment Information
+
+            - **Docker Image:** `${{ env.DOCKER_IMAGE_NAME }}:${{ env.RELEASE_TAG }}`
+            - **Container Name:** `${{ env.DOCKER_CONTAINER_NAME }}`
+            - **Port:** `${{ vars.HOST_PORT || 8080 }}`
+            - **Commit:** `${{ github.sha }}`
+            - **Branch:** `${{ github.ref_name }}`
+            - **Deployed by:** @${{ github.actor }}
+
+            ---
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deployment Summary
+        shell: pwsh
+        run: |
+          @"
+          ## Deployment Successful! 🚀
+
+          **Release Tag:** ${{ env.RELEASE_TAG }}
+
+          **Commit:** ${{ github.sha }}
+          **Branch:** ${{ github.ref_name }}
+          **Release:** https://github.com/${{ github.repository }}/releases/tag/${{ env.RELEASE_TAG }}
+          "@ >> $env:GITHUB_STEP_SUMMARY
