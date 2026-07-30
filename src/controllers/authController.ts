@@ -5,10 +5,36 @@ import { dbOutput } from "../models";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const AdminUser = (dbOutput as any).adminUser;
+const AdminUserInvitation = (dbOutput as any).adminUserInvitation;
+
+export const verifyInvite = async (req: Request, res: Response) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: "No token provided" });
+
+    const invitation = await AdminUserInvitation.findOne({
+      where: { token, status: 'PENDING', isDeleted: false }
+    });
+
+    if (!invitation || invitation.expiresAt < new Date()) {
+      return res.status(400).json({ error: "Invalid or expired invitation" });
+    }
+
+    const user = await AdminUser.findByPk(invitation.adminUserId);
+    if (!user || user.status !== 'INVITED') {
+      return res.status(400).json({ error: "User is no longer in an invited state" });
+    }
+
+    return res.status(200).json({ message: "Valid invite", email: user.email });
+  } catch (error) {
+    console.error("Error verifying invite:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
 
 export const googleLogin = async (req: Request, res: Response) => {
   try {
-    const { token } = req.body;
+    const { token, inviteToken } = req.body;
     
     if (!token) {
       return res.status(400).json({ error: "No token provided" });
@@ -26,6 +52,7 @@ export const googleLogin = async (req: Request, res: Response) => {
 
     const email = payload.email.toLowerCase().trim();
     let userRole = "ADMIN";
+    let userId: string | undefined;
 
     if (AdminUser) {
       // Check if email exists in admin_users table
@@ -57,19 +84,40 @@ export const googleLogin = async (req: Request, res: Response) => {
         });
       }
 
-      // Activate invited user upon first successful SSO login
+      // Activate invited user upon first successful SSO login, but ONLY if they provided a valid inviteToken
       if (existingUser.status === "INVITED") {
+        if (!inviteToken) {
+          return res.status(403).json({
+            error: "Please click the link in your invitation email to activate your account."
+          });
+        }
+
+        // Verify the inviteToken provided during login
+        const invitation = await AdminUserInvitation.findOne({
+          where: { token: inviteToken, status: 'PENDING', isDeleted: false, adminUserId: existingUser.id }
+        });
+
+        if (!invitation || invitation.expiresAt < new Date()) {
+          return res.status(403).json({
+            error: "Your invitation link is invalid or has expired."
+          });
+        }
+
         await existingUser.update({ status: "ACTIVE", name: payload.name || existingUser.name });
+        
+        // Mark the specific invitation as accepted
+        await invitation.update({ status: 'ACCEPTED' });
       }
 
       userRole = existingUser.role || "ADMIN";
+      userId = existingUser.id;
     }
 
     const adminToken = jwt.sign(
       { 
+        id: userId,
         email: payload.email, 
-        name: payload.name, 
-        role: userRole 
+        name: payload.name
       },
       process.env.JWT_SECRET || "default_secret",
       { expiresIn: "24h" }
@@ -79,10 +127,10 @@ export const googleLogin = async (req: Request, res: Response) => {
       message: "Login successful",
       token: adminToken,
       user: {
+        id: userId,
         email: payload.email,
         name: payload.name,
-        picture: payload.picture,
-        role: userRole
+        picture: payload.picture
       }
     });
   } catch (error) {

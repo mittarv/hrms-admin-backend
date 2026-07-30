@@ -8,6 +8,13 @@ export const FIND_ORG_BY_SUBDOMAIN = `
   WHERE subdomain = :subdomain LIMIT 1
 `;
 
+export const CHECK_FIELD_AVAILABILITY = (field: string) => `
+  SELECT id FROM organizations 
+  WHERE ${field} = :value 
+  AND isDeleted = false
+  LIMIT 1
+`;
+
 export const INSERT_ORGANIZATION = `
   INSERT INTO organizations 
   (id, name, subdomain, domain, slugDomain, adminEmail, allowedDomain, metadata, status, isDeleted, createdAt, updatedAt)

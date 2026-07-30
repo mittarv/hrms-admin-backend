@@ -6,7 +6,6 @@ export interface AdminUserAttributes {
   email: string;
   role: string;
   status: string;
-  organizationId?: string | null;
   invitedBy?: string | null;
   isDeleted?: boolean;
   createdAt?: Date;
@@ -19,7 +18,6 @@ export class AdminUser extends Model<AdminUserAttributes, Partial<AdminUserAttri
   declare email: string;
   declare role: string;
   declare status: string;
-  declare organizationId: string | null;
   declare invitedBy: string | null;
   declare isDeleted: boolean;
 
@@ -51,10 +49,6 @@ export const initAdminUser = (sequelize: Sequelize, dataTypes: typeof DataTypes)
       status: {
         type: dataTypes.ENUM("ACTIVE", "INVITED", "INACTIVE", "SUSPENDED"),
         defaultValue: "INVITED",
-      },
-      organizationId: {
-        type: dataTypes.STRING,
-        allowNull: true,
       },
       invitedBy: {
         type: dataTypes.STRING,

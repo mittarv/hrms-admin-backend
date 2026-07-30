@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Welcome to EXTIndia HRMS</title>
+    <title>Invitation to EXTIndiax Admin Panel</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -83,6 +83,17 @@
             color: #0f172a;
             font-weight: 600;
         }
+        .org-list {
+            margin: 0;
+            padding-left: 18px;
+            color: #0f172a;
+        }
+        .org-list li {
+            margin-bottom: 4px;
+        }
+        .org-list li:last-child {
+            margin-bottom: 0;
+        }
         .btn-container {
             text-align: center;
             margin-top: 35px;
@@ -122,38 +133,44 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Welcome to EXTIndiax HRMS</h1>
+            <h1>Welcome to EXTIndiax Admin Panel</h1>
         </div>
         <div class="content">
-            <p class="greeting">Hello {{adminName}},</p>
-            <p>Your organisation, <strong>{{organizationName}}</strong>, has been successfully onboarded to EXTIndiax HRMS. You have been assigned the <strong>Super Administrator</strong> role, with full access to manage employees, departments, attendance, payroll, and leave.</p>
+            <p class="greeting">Hi {{name}},</p>
+            <p>You have been invited to join the EXTIndiax Admin Panel. An administrator has granted you access to manage the platform.</p>
             
             <div class="access-card">
-                <p class="access-card-title">Your Workspace Details</p>
+                <p class="access-card-title">Your Access Details</p>
                 <div class="access-row">
                     <div class="access-label">Role:</div>
-                    <div class="access-value" style="color: #2563eb;">Super Administrator</div>
+                    <div class="access-value" style="color: #2563eb;">{{role}}</div>
                 </div>
                 <div class="access-row">
-                    <div class="access-label">Login Email:</div>
-                    <div class="access-value">{{email}}</div>
-                </div>
-                <div class="access-row">
-                    <div class="access-label">Workspace:</div>
-                    <div class="access-value">{{organizationName}}</div>
+                    <div class="access-label">Organizations:</div>
+                    <div class="access-value">
+                        {{#if organizations.length}}
+                            <ul class="org-list">
+                                {{#each organizations}}
+                                    <li>{{this}}</li>
+                                {{/each}}
+                            </ul>
+                        {{else}}
+                            Global Access
+                        {{/if}}
+                    </div>
                 </div>
             </div>
 
-            <p>To securely sign in to your HRMS workspace, please click the button below:</p>
+            <p>To accept your invitation and securely log in with your Google Workspace account, please click the button below:</p>
             
             <div class="btn-container">
-                <a href="{{redirectUrl}}" class="btn">Sign in to HRMS</a>
+                <a href="{{inviteLink}}" class="btn">Accept Invitation</a>
             </div>
             
             <div class="fallback">
                 <p>If the button doesn't work, copy and paste this link into your browser:</p>
-                <p><a href="{{redirectUrl}}">{{redirectUrl}}</a></p>
-                <p style="margin-top: 20px;">For security, sign in using the same email address that received this invitation, so your administrator access is applied automatically.</p>
+                <p><a href="{{inviteLink}}">{{inviteLink}}</a></p>
+                <p style="margin-top: 20px;">If you didn't expect this invitation, you can safely ignore this email.</p>
             </div>
         </div>
         <div class="footer">
