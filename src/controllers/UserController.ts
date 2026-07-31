@@ -131,7 +131,7 @@ export const inviteUser = async (req: Request, res: Response) => {
         await existingUser.update({
           name,
           role: newRole,
-          status: status || (newRole === "ADMIN" || newRole === "SUPER_ADMIN" ? "ACTIVE" : "INVITED"),
+          status: status || "INVITED",
           isDeleted: false
         });
         
@@ -168,7 +168,7 @@ export const inviteUser = async (req: Request, res: Response) => {
       name,
       email: email.toLowerCase().trim(),
       role: newRole,
-      status: status || (newRole === "ADMIN" || newRole === "SUPER_ADMIN" ? "ACTIVE" : "INVITED"),
+      status: status || "INVITED",
       isDeleted: false
     });
 
