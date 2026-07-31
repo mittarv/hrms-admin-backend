@@ -173,9 +173,10 @@ export const inviteUser = async (req: Request, res: Response) => {
     });
 
     if (newRole === "SUPER_ADMIN") {
-      const { dbOutput } = require("../models");
-      const Organization = dbOutput.organization;
-      const allOrgs = await Organization.findAll({ where: { isDeleted: false } });
+      const { dbHrms } = require("../models");
+      const { QueryTypes } = require("sequelize");
+      const { GET_ALL_ORGANIZATIONS } = require("../queries/organizationQueries");
+      const allOrgs: any[] = await dbHrms.query(GET_ALL_ORGANIZATIONS('false', 'false'), { type: QueryTypes.SELECT });
       const mappings = allOrgs.map((org: any) => ({
         adminUserId: user.id,
         organizationId: org.id,
