@@ -16,8 +16,8 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build TypeScript
-RUN npx tsc --outDir dist
+# Build TypeScript and copy static files
+RUN npm run build
 
 # ============================
 # 2️⃣ Production Stage
