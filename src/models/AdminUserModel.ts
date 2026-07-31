@@ -43,7 +43,7 @@ export const initAdminUser = (sequelize: Sequelize, dataTypes: typeof DataTypes)
         unique: true,
       },
       role: {
-        type: dataTypes.ENUM("SUPER_ADMIN", "ADMIN", "HR_MANAGER", "VIEWER"),
+        type: dataTypes.ENUM("SUPER_ADMIN", "ADMIN", "VIEWER"),
         defaultValue: "ADMIN",
       },
       status: {
