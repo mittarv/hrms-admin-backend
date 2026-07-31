@@ -70,3 +70,40 @@ export const sendSaaSCreationEmail = async (
     });
   });
 };
+
+export const sendInviteEmail = async (
+  email: string,
+  name: string,
+  role: string,
+  inviteToken: string,
+  organizations: string[] = []
+) => {
+  return new Promise((resolve, reject) => {
+    // Determine the frontend base URL
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const inviteLink = `${baseUrl}/accept-invite?token=${inviteToken}`;
+
+    transporter.sendMail({
+      from: process.env.HRMS_SMTP_FROM,
+      replyTo: process.env.HRMS_SMTP_FROM,
+      to: email,
+      subject: 'Invitation to Join Mittarv Admin',
+      template: 'invite_user',
+      context: {
+        name: name,
+        role: role.replace('_', ' '),
+        organizations: organizations.length > 0 ? organizations : ['Global Access'],
+        inviteLink: inviteLink,
+        year: new Date().getFullYear().toString()
+      }
+    } as any, (err: any) => {
+      if (err) {
+        console.error('Failed to send invite email:', err);
+        reject(new Error(`Failed to send email: ${err.message}`));
+      } else {
+        console.log('Invite email sent to:', email);
+        resolve('Email sent successfully');
+      }
+    });
+  });
+};

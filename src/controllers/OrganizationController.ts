@@ -6,6 +6,7 @@ import { extractDomainFromEmail, generateSlugDomain } from "../utils/domainUtils
 import { sendSaaSCreationEmail } from "../utils/sendEmail";
 import {
   FIND_ORG_BY_SUBDOMAIN,
+  CHECK_FIELD_AVAILABILITY,
   INSERT_ORGANIZATION,
   INSERT_DEFAULT_CONFIGS,
   INSERT_UNPAID_LEAVE,
@@ -21,6 +22,35 @@ import {
   CASCADE_RESTORE,
   CASCADE_ACTIVATE_LEAVE
 } from "../queries/organizationQueries";
+
+export const checkAvailability = async (req: Request, res: Response) => {
+  try {
+    const { field, value, excludeId } = req.query;
+    if (!field || !value) return res.status(400).json({ error: "Missing field or value" });
+    
+    const validFields = ['name', 'subdomain', 'domain', 'adminEmail'];
+    if (!validFields.includes(field as string)) return res.status(400).json({ error: "Invalid field" });
+    
+    let queryStr = CHECK_FIELD_AVAILABILITY(field as string);
+    const replacements: any = { value };
+    
+    if (excludeId) {
+      queryStr = queryStr.replace('LIMIT 1', 'AND id != :excludeId LIMIT 1');
+      replacements.excludeId = excludeId;
+    }
+    
+    const existing = await dbHrms.query(queryStr, {
+      replacements,
+      type: QueryTypes.SELECT
+    });
+    
+    const isAvailable = existing.length === 0;
+    res.status(200).json({ isAvailable });
+  } catch (error) {
+    console.error("Error checking field availability:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
 
 export const createOrganization = async (req: Request, res: Response) => {
   try {
@@ -156,6 +186,25 @@ export const createOrganization = async (req: Request, res: Response) => {
       console.error("Failed to seed default component/leave/salary configs/roles:", seedErr);
     }
 
+    try {
+      // Map all existing SUPER_ADMINs to this new organization
+      const { dbOutput } = require("../models");
+      const AdminUser = dbOutput.adminUser;
+      const AdminUserOrganization = dbOutput.adminUserOrganization;
+
+      const superAdmins = await AdminUser.findAll({ where: { role: 'SUPER_ADMIN', isDeleted: false } });
+      if (superAdmins.length > 0) {
+        const mappings = superAdmins.map((sa: any) => ({
+          adminUserId: sa.id,
+          organizationId: org.id,
+          isDeleted: false
+        }));
+        await AdminUserOrganization.bulkCreate(mappings);
+      }
+    } catch (mapErr) {
+      console.error("Failed to map super admins to new org:", mapErr);
+    }
+
     if (adminEmail) {
       try {
         const adminName = req.body.adminName || adminEmail.split('@')[0].split(/[._-]/).map((s: string) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
@@ -180,8 +229,7 @@ export const getAllOrganizations = async (req: Request, res: Response) => {
       type: QueryTypes.SELECT
     });
     
-    // Parse metadata JSON field if it exists as string from MySQL
-    const parsedOrgs = orgs.map((org: any) => {
+    let parsedOrgs = orgs.map((org: any) => {
       if (typeof org.metadata === 'string') {
         try {
           org.metadata = JSON.parse(org.metadata);
@@ -189,6 +237,12 @@ export const getAllOrganizations = async (req: Request, res: Response) => {
       }
       return org;
     });
+
+    const currentUser = (req as any).user;
+    if (currentUser) {
+      const allowedOrgIds = currentUser.organizations || [];
+      parsedOrgs = parsedOrgs.filter((org: any) => allowedOrgIds.includes(org.id));
+    }
 
     res.status(200).json({ data: parsedOrgs });
   } catch (error: any) {
@@ -210,6 +264,15 @@ export const getOrganizationById = async (req: Request, res: Response) => {
     }
 
     const org = results[0];
+
+    const currentUser = (req as any).user;
+    if (currentUser) {
+      const allowedOrgIds = currentUser.organizations || [];
+      if (!allowedOrgIds.includes(org.id)) {
+        return res.status(403).json({ error: "Forbidden: You do not have access to this organization" });
+      }
+    }
+
     if (typeof org.metadata === 'string') {
       try {
         org.metadata = JSON.parse(org.metadata);

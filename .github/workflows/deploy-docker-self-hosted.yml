@@ -83,6 +83,7 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           HRMS_SMTP_FROM: ${{ vars.HRMS_SMTP_FROM }}
           ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
         run: |
           @"
           PORT=$env:PORT
@@ -110,6 +111,7 @@ jobs:
           SMTP_PASS=$env:SMTP_PASS
           HRMS_SMTP_FROM=$env:HRMS_SMTP_FROM
           ADMIN_EMAIL=$env:ADMIN_EMAIL
+          FRONTEND_URL=$env:FRONTEND_URL
           "@ | Set-Content .env
 
       - name: Stop and remove existing container

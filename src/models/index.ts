@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import { initAdminUser } from './AdminUserModel';
+import { initAdminUserOrganization } from './AdminUserOrganizationModel';
+import { initAdminUserInvitation } from './AdminUserInvitationModel';
 
 // Database for Admin UAM
 const dbOutput = new Sequelize(
@@ -32,40 +34,21 @@ const dbHrms = new Sequelize(
 );
 
 (dbOutput as any).adminUser = initAdminUser(dbOutput, require('sequelize').DataTypes);
+(dbOutput as any).adminUserOrganization = initAdminUserOrganization(dbOutput, require('sequelize').DataTypes);
+(dbOutput as any).adminUserInvitation = initAdminUserInvitation(dbOutput, require('sequelize').DataTypes);
 
-export const seedInitialAdminUsers = async () => {
-  const AdminUser = (dbOutput as any).adminUser;
-  if (!AdminUser) return;
+// Define associations
+const AdminUser = (dbOutput as any).adminUser;
+const AdminUserOrganization = (dbOutput as any).adminUserOrganization;
+const AdminUserInvitation = (dbOutput as any).adminUserInvitation;
 
-  const initialAdmins = [
-    { name: "Vishal", email: "vishal@mittarv.com", role: "SUPER_ADMIN", status: "ACTIVE" },
-    { name: "Amitosh Kumar", email: "amitosh.kumar@mittarv.com", role: "SUPER_ADMIN", status: "ACTIVE" }
-  ];
+AdminUser.hasMany(AdminUserOrganization, { foreignKey: 'adminUserId', as: 'organizations' });
+AdminUserOrganization.belongsTo(AdminUser, { foreignKey: 'adminUserId', as: 'user' });
 
-  for (const admin of initialAdmins) {
-    try {
-      const [user, created] = await AdminUser.findOrCreate({
-        where: { email: admin.email },
-        defaults: {
-          name: admin.name,
-          email: admin.email,
-          role: admin.role,
-          status: admin.status,
-          isDeleted: false
-        }
-      });
+AdminUser.hasMany(AdminUserInvitation, { foreignKey: 'adminUserId', as: 'invitations' });
+AdminUserInvitation.belongsTo(AdminUser, { foreignKey: 'adminUserId', as: 'user' });
 
-      if (created) {
-        console.log(`[Seed]: Seeded Super Admin user: ${admin.email}`);
-      } else if (user.isDeleted || user.status === "INVITED") {
-        await user.update({ status: "ACTIVE", isDeleted: false, role: "SUPER_ADMIN" });
-        console.log(`[Seed]: Activated Super Admin user: ${admin.email}`);
-      }
-    } catch (err) {
-      console.error(`[Seed]: Error seeding ${admin.email}:`, err);
-    }
-  }
-};
+
 
 export const connectDB = async () => {
   try {
@@ -76,10 +59,9 @@ export const connectDB = async () => {
     console.log('[Database]: HRMS (dbHrms) connected successfully.');
     
     // Sync admin models
-    await dbOutput.sync();
+    await dbOutput.sync({ alter: { drop: false } });
 
-    // Seed initial Super Admin users
-    await seedInitialAdminUsers();
+
   } catch (error) {
     console.error('[Database]: Unable to connect to the databases:', error);
   }
