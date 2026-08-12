@@ -1,15 +1,19 @@
 import nodemailer from 'nodemailer';
 const hbs = require('nodemailer-express-handlebars');
 import path from 'path';
+import { buildInviteLink } from './inviteToken';
+
+const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
+const smtpPass = (process.env.SMTP_PASS || '').replace(/\s+/g, '');
 
 const transporter = nodemailer.createTransport({
-  service: "sendMail",
+  host: process.env.SMTP_HOST,
+  port: smtpPort,
+  secure: smtpPort === 465,
   auth: {
     user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
+    pass: smtpPass,
   },
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT || '587'),
 });
 
 const handlebarOptions = {
@@ -47,8 +51,8 @@ export const sendSaaSCreationEmail = async (
     }
 
     transporter.sendMail({
-      from: process.env.HRMS_SMTP_FROM,
-      replyTo: process.env.HRMS_SMTP_FROM,
+      from: process.env.HRMS_SMTP_FROM || process.env.SMTP_USER,
+      replyTo: process.env.HRMS_SMTP_FROM || process.env.SMTP_USER,
       to: email,
       subject: 'Welcome to your new HRMS',
       template: 'saas_onboarding_welcome',
@@ -79,13 +83,11 @@ export const sendInviteEmail = async (
   organizations: string[] = []
 ) => {
   return new Promise((resolve, reject) => {
-    // Determine the frontend base URL
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const inviteLink = `${baseUrl}/accept-invite?token=${inviteToken}`;
+    const inviteLink = buildInviteLink(inviteToken);
 
     transporter.sendMail({
-      from: process.env.HRMS_SMTP_FROM,
-      replyTo: process.env.HRMS_SMTP_FROM,
+      from: process.env.HRMS_SMTP_FROM || process.env.SMTP_USER,
+      replyTo: process.env.HRMS_SMTP_FROM || process.env.SMTP_USER,
       to: email,
       subject: 'Invitation to Join Mittarv Admin',
       template: 'invite_user',

@@ -40,7 +40,8 @@ export const initAdminUserInvitation = (sequelize: Sequelize, dataTypes: typeof 
         }
       },
       token: {
-        type: dataTypes.STRING,
+        // Opaque hex token (64 chars). Avoid long JWTs that break email URLs / VARCHAR limits.
+        type: dataTypes.STRING(128),
         allowNull: false,
         unique: true,
       },

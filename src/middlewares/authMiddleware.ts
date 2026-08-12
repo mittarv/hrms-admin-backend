@@ -3,9 +3,11 @@ import jwt from "jsonwebtoken";
 
 export interface AuthenticatedRequest extends Request {
   user?: {
+    id?: string;
     email: string;
     name?: string;
     role?: string;
+    organizations?: string[];
   };
 }
 
@@ -30,36 +32,83 @@ export const authenticateJWT = (req: AuthenticatedRequest, res: Response, next: 
 export const requireRole = (roles: string[]) => {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const userEmail = req.user?.email;
-      if (!userEmail) {
+      const rawEmail = req.user?.email;
+      const userId = req.user?.id;
+
+      if (!rawEmail && !userId) {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      // Fetch user from DB to ensure role is up-to-date and not revoked
+      const email = rawEmail ? String(rawEmail).toLowerCase().trim() : null;
+
       const { dbOutput } = require("../models");
       const AdminUser = dbOutput.adminUser;
       const AdminUserOrganization = dbOutput.adminUserOrganization;
 
-      const user = await AdminUser.findOne({
-        where: { email: userEmail, isDeleted: false, status: 'ACTIVE' },
-        include: [{ model: AdminUserOrganization, as: 'organizations', required: false, where: { isDeleted: false } }]
+      let adminUser: any = null;
+
+      if (userId) {
+        adminUser = await AdminUser.findByPk(userId);
+        // Stale JWT id (deleted / replaced user) — fall back to email
+        if (adminUser?.isDeleted) {
+          adminUser = null;
+        }
+      }
+
+      if (!adminUser && email) {
+        adminUser = await AdminUser.findOne({
+          where: { email, isDeleted: false },
+        });
+      }
+
+      // Fallback for case-sensitive collations / older tokens
+      if (!adminUser && email) {
+        const candidates = await AdminUser.findAll({
+          where: { isDeleted: false },
+          limit: 500,
+        });
+        adminUser =
+          candidates.find(
+            (u: any) => String(u.email || "").toLowerCase().trim() === email
+          ) || null;
+      }
+
+      if (!adminUser) {
+        return res.status(403).json({
+          error: "User account not found. Please sign out and sign in again.",
+        });
+      }
+
+      if (adminUser.isDeleted) {
+        return res.status(403).json({
+          error: "User account is inactive or deleted",
+        });
+      }
+
+      if (adminUser.status !== "ACTIVE") {
+        return res.status(403).json({
+          error: `User account is ${String(adminUser.status).toLowerCase()}. Please complete invitation or contact a Super Admin.`,
+        });
+      }
+
+      if (!roles.includes(adminUser.role) && adminUser.role !== "SUPER_ADMIN") {
+        return res.status(403).json({
+          error: "Forbidden: You do not have the required access role",
+        });
+      }
+
+      const orgMappings = await AdminUserOrganization.findAll({
+        where: { adminUserId: adminUser.id, isDeleted: false },
+        attributes: ["organizationId"],
       });
 
-      if (!user) {
-        return res.status(403).json({ error: "User account is inactive or deleted" });
-      }
-
-      if (!roles.includes(user.role) && user.role !== "SUPER_ADMIN") {
-        return res.status(403).json({ error: "Forbidden: You do not have the required access role" });
-      }
-
-      // Attach full DB user to request
       req.user = {
         ...req.user,
-        role: user.role,
-        id: user.id,
-        organizations: user.organizations ? user.organizations.map((org: any) => org.organizationId) : []
-      } as any;
+        id: adminUser.id,
+        email: adminUser.email,
+        role: adminUser.role,
+        organizations: orgMappings.map((org: any) => org.organizationId),
+      };
 
       next();
     } catch (error) {

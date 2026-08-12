@@ -100,16 +100,17 @@
             margin-bottom: 35px;
         }
         .btn {
-            background-color: #2563eb;
-            color: #ffffff;
+            /* Fallback for clients that support class styles */
+            background-color: #2563eb !important;
+            color: #ffffff !important;
             padding: 14px 32px;
-            text-decoration: none;
+            text-decoration: none !important;
             border-radius: 8px;
             font-weight: 600;
             font-size: 16px;
             display: inline-block;
-            transition: background-color 0.2s;
-            box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+            line-height: 1.25;
+            mso-padding-alt: 0;
         }
         .fallback {
             font-size: 13px;
@@ -133,11 +134,11 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Welcome to EXTIndiax Admin Panel</h1>
+            <h1>Welcome to EXTIndia Admin Panel</h1>
         </div>
         <div class="content">
             <p class="greeting">Hi {{name}},</p>
-            <p>You have been invited to join the EXTIndiax Admin Panel. An administrator has granted you access to manage the platform.</p>
+            <p>You have been invited to join the EXTIndia Admin Panel. An administrator has granted you access to manage the platform.</p>
             
             <div class="access-card">
                 <p class="access-card-title">Your Access Details</p>
@@ -163,13 +164,31 @@
 
             <p>To accept your invitation and securely log in with your Google Workspace account, please click the button below:</p>
             
+            <!-- Bulletproof email button (table + inline styles for Gmail/Outlook) -->
             <div class="btn-container">
-                <a href="{{inviteLink}}" class="btn">Accept Invitation</a>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin: 0 auto;">
+                <tr>
+                  <td align="center" bgcolor="#2563eb" style="border-radius: 8px; background-color: #2563eb;">
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{inviteLink}}" style="height:48px;v-text-anchor:middle;width:220px;" arcsize="17%" stroke="f" fillcolor="#2563eb">
+                      <w:anchorlock/>
+                      <center style="color:#ffffff;font-family:Segoe UI, Arial, sans-serif;font-size:16px;font-weight:600;">Accept Invitation</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!-- -->
+                    <a href="{{inviteLink}}" class="btn" target="_blank" rel="noopener noreferrer"
+                       style="display: inline-block; background-color: #2563eb; color: #ffffff !important; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 16px; font-weight: 600; line-height: 1.25; text-align: center; text-decoration: none !important; padding: 14px 32px; border-radius: 8px; mso-padding-alt: 0;">
+                      Accept Invitation
+                    </a>
+                    <!--<![endif]-->
+                  </td>
+                </tr>
+              </table>
             </div>
             
             <div class="fallback">
                 <p>If the button doesn't work, copy and paste this link into your browser:</p>
-                <p><a href="{{inviteLink}}">{{inviteLink}}</a></p>
+                <p><a href="{{inviteLink}}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; word-break: break-all;">{{inviteLink}}</a></p>
                 <p style="margin-top: 20px;">If you didn't expect this invitation, you can safely ignore this email.</p>
             </div>
         </div>
