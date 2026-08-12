@@ -1,11 +1,48 @@
 import { Request, Response } from "express";
-import jwt from "jsonwebtoken";
 import { dbOutput } from "../models";
 import { sendInviteEmail } from "../utils/sendEmail";
+import { createInviteToken, buildInviteLink } from "../utils/inviteToken";
 
 const AdminUser = (dbOutput as any).adminUser;
 const AdminUserOrganization = (dbOutput as any).adminUserOrganization;
 const AdminUserInvitation = (dbOutput as any).adminUserInvitation;
+
+const createPendingInvitation = async (adminUserId: string) => {
+  const inviteToken = createInviteToken();
+  await AdminUserInvitation.update(
+    { status: "EXPIRED", isDeleted: true },
+    { where: { adminUserId, status: "PENDING" } }
+  );
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+  await AdminUserInvitation.create({
+    adminUserId,
+    token: inviteToken,
+    status: "PENDING",
+    expiresAt,
+  });
+  return inviteToken;
+};
+
+const sendInviteOrReturnLink = async (
+  email: string,
+  name: string,
+  role: string,
+  inviteToken: string
+) => {
+  const inviteLink = buildInviteLink(inviteToken);
+  try {
+    await sendInviteEmail(email, name, role, inviteToken);
+    return { emailSent: true, inviteLink };
+  } catch (emailError: any) {
+    console.error("Invite email failed:", emailError);
+    return {
+      emailSent: false,
+      inviteLink,
+      emailError: emailError.message,
+    };
+  }
+};
 
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
@@ -148,17 +185,25 @@ export const inviteUser = async (req: Request, res: Response) => {
         }
         
         if (existingUser.status === "INVITED") {
-          const inviteToken = jwt.sign({ id: existingUser.id, email: existingUser.email }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
-          
-          await AdminUserInvitation.update({ status: 'EXPIRED', isDeleted: true }, { where: { adminUserId: existingUser.id, status: 'PENDING' } });
-          const expiresAt = new Date();
-          expiresAt.setDate(expiresAt.getDate() + 7);
-          await AdminUserInvitation.create({ adminUserId: existingUser.id, token: inviteToken, status: 'PENDING', expiresAt });
-          
-          await sendInviteEmail(existingUser.email, existingUser.name, existingUser.role, inviteToken);
+          const inviteToken = await createPendingInvitation(existingUser.id);
+          const emailResult = await sendInviteOrReturnLink(
+            existingUser.email,
+            existingUser.name,
+            existingUser.role,
+            inviteToken
+          );
+
+          if (!emailResult.emailSent) {
+            return res.status(200).json({
+              message:
+                "User re-invited, but the invitation email failed to send. Share the invite link manually or fix SMTP and resend.",
+              data: existingUser,
+              ...emailResult,
+            });
+          }
         }
         
-        return res.status(200).json({ message: "User re-invited successfully", data: existingUser });
+        return res.status(200).json({ message: "User re-invited successfully", data: existingUser, emailSent: true });
       }
       return res.status(400).json({ error: "A user with this email already exists" });
     }
@@ -192,20 +237,28 @@ export const inviteUser = async (req: Request, res: Response) => {
     }
 
     if (user.status === "INVITED") {
-      const inviteToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
-      
-      await AdminUserInvitation.update({ status: 'EXPIRED', isDeleted: true }, { where: { adminUserId: user.id, status: 'PENDING' } });
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
-      await AdminUserInvitation.create({ adminUserId: user.id, token: inviteToken, status: 'PENDING', expiresAt });
-      
-      await sendInviteEmail(user.email, user.name, user.role, inviteToken);
+      const inviteToken = await createPendingInvitation(user.id);
+      const emailResult = await sendInviteOrReturnLink(
+        user.email,
+        user.name,
+        user.role,
+        inviteToken
+      );
+
+      if (!emailResult.emailSent) {
+        return res.status(201).json({
+          message:
+            "User created as INVITED, but the invitation email failed to send. Share the invite link manually or fix SMTP and resend.",
+          data: user,
+          ...emailResult,
+        });
+      }
     }
 
-    res.status(201).json({ message: "User invited successfully", data: user });
+    res.status(201).json({ message: "User invited successfully", data: user, emailSent: true });
   } catch (error: any) {
     console.error("Error inviting user:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: error.message || "Internal server error" });
   }
 };
 
@@ -267,19 +320,32 @@ export const resendInvite = async (req: Request, res: Response) => {
     }
 
     await user.update({ status: "INVITED" });
-    const inviteToken = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
-    
-    await AdminUserInvitation.update({ status: 'EXPIRED', isDeleted: true }, { where: { adminUserId: user.id, status: 'PENDING' } });
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-    await AdminUserInvitation.create({ adminUserId: user.id, token: inviteToken, status: 'PENDING', expiresAt });
-    
-    await sendInviteEmail(user.email, user.name, user.role, inviteToken);
+    const inviteToken = await createPendingInvitation(user.id);
+    const emailResult = await sendInviteOrReturnLink(
+      user.email,
+      user.name,
+      user.role,
+      inviteToken
+    );
 
-    res.status(200).json({ message: "Invitation resent successfully", data: user });
+    if (!emailResult.emailSent) {
+      return res.status(200).json({
+        message:
+          "Invitation updated, but the email failed to send. Share the invite link manually or fix SMTP.",
+        data: user,
+        ...emailResult,
+      });
+    }
+
+    res.status(200).json({
+      message: "Invitation resent successfully",
+      data: user,
+      emailSent: true,
+      inviteLink: emailResult.inviteLink,
+    });
   } catch (error: any) {
     console.error("Error resending invite:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: error.message || "Internal server error" });
   }
 };
 
